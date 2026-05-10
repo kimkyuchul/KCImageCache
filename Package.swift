@@ -10,6 +10,10 @@ let package = Package(
         .library(
             name: "KCImageCache",
             targets: ["KCImageCache"]
+        ),
+        .library(
+            name: "KCImageCacheUI",
+            targets: ["KCImageCacheUI"]
         )
     ],
     targets: [
@@ -20,10 +24,18 @@ let package = Package(
                 .swiftLanguageMode(.v6)
             ]
         ),
+        .target(
+            name: "KCImageCacheUI",
+            dependencies: ["KCImageCache"],
+            path: "Sources/KCImageCacheUI",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
         .testTarget(
             name: "KCImageCacheTests",
-            dependencies: ["KCImageCache"],
-            path: "Tests/KCImageCacheTests",
+            dependencies: ["KCImageCache", "KCImageCacheUI"],
+            path: "Tests",
             resources: [
                 .process("Resources")
             ],

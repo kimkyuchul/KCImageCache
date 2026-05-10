@@ -8,6 +8,7 @@
 import UIKit
 import Testing
 @testable import KCImageCache
+@testable import KCImageCacheUI
 
 @MainActor
 @Suite("KCImageLoader")

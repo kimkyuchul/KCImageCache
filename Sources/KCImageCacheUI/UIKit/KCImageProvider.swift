@@ -6,6 +6,7 @@
 //
 
 import UIKit
+import KCImageCache
 
 /// `UIImageView` 에 1:1 부착되는 Provider.
 @MainActor

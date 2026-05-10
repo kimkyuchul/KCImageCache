@@ -7,6 +7,7 @@
 
 import SwiftUI
 import UIKit
+import KCImageCache
 
 /// SwiftUI 용 이미지 로더 ViewModel.
 ///

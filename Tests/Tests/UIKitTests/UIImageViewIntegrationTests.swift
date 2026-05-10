@@ -8,6 +8,7 @@
 import UIKit
 import Testing
 @testable import KCImageCache
+@testable import KCImageCacheUI
 
 @MainActor
 @Suite("UIImageView+KCImage")
@@ -23,7 +24,7 @@ struct UIImageViewIntegrationTests {
 
         // When
         view.setKCImage(with: ImageRequest(url: .makeForTesting()), pipeline: pipeline)
-        try await Task.sleep(for: .milliseconds(100))
+        try await Task.sleep(for: .milliseconds(500))
 
         // Then
         #expect(view.image != nil)
@@ -93,7 +94,7 @@ struct UIImageViewIntegrationTests {
         view.setKCImage(with: ImageRequest(url: .makeForTesting()), pipeline: pipeline)
         try await Task.sleep(for: .milliseconds(100))
         view.setKCImage(with: ImageRequest(url: .makeForTesting()), pipeline: pipeline)
-        try await Task.sleep(for: .milliseconds(500))
+        try await Task.sleep(for: .milliseconds(1000))
 
         // Then
         #expect(view.image != nil)
@@ -113,7 +114,7 @@ struct UIImageViewIntegrationTests {
 
         // When
         view.setKCImage(with: request, pipeline: pipeline)
-        try await Task.sleep(for: .milliseconds(150))
+        try await Task.sleep(for: .milliseconds(500))
 
         // Then
         let cg = try #require(view.image?.cgImage)

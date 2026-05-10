@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import KCImageCache
 
 /// SwiftUI 용 비동기 이미지 View.
 ///
