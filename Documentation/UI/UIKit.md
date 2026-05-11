@@ -34,7 +34,7 @@ imageView.setKCImage(with: ImageRequest(url: url), placeholder: spinner)
 ## 정책
 
 ### 자동 취소
-- 같은 `UIImageView`에 `setKCImage`를 다시 호출하면 이전 다운로드가 자동으로 취소됩니다. 셀이 빠르게 스크롤되어도 늦게 도착한 이미지가 잘못된 셀에 표시되지 않습니다.
+- 같은 `UIImageView`에 `setKCImage`를 다시 호출하면 이전 다운로드가 자동으로 취소되며, 더 이상 그 이미지를 기다리는 곳이 없으면 네트워크 작업까지 중단됩니다. 셀이 빠르게 스크롤되어도 늦게 도착한 이미지가 잘못된 셀에 표시되지 않습니다.
 - `UIImageView`가 dealloc되면 진행 중 Task가 자동으로 취소됩니다. 화면이 사라질 때 별도 정리 코드가 필요 없습니다.
 
 ### nil request 동작

@@ -23,13 +23,20 @@ public struct ImageRequestOptions: Sendable, Hashable {
 ## 동작
 
 ### 로드 순서
+
+<p align="center">
+  <img src="../../assets/Documentation/ImagePipeline/ImagePipeline.png" alt="ImagePipeline load sequence" width="280">
+</p>
+
 1. 메모리 캐시 (디코딩된 `UIImage`)
 2. 디스크 캐시 (다운샘플 결과를 먼저 보고, 없으면 원본 데이터)
 3. 진행 중인 같은 요청에 합류 (중복 합치기)
 4. 네트워크 다운로드
 
 ### 중복 요청 합치기 (dedup)
-같은 `(url, options)` 조합으로 동시에 들어온 요청은 한 번만 네트워크에 나가고 결과를 공유합니다. 호출이 취소되면 합류자에게 `CancellationError`가 전파됩니다.
+같은 `(url, options)` 조합으로 동시에 들어온 요청은 한 번만 네트워크에 나가고 결과를 공유합니다.
+
+한 호출자가 취소되면 그 호출자만 `CancellationError` 로 깨어나고 다른 호출자의 작업은 계속됩니다. 마지막 호출자까지 취소되면 공유 작업도 함께 취소되어 진행 중인 이미지 네트워크 요청까지 중단됩니다 (네트워크 자원 즉시 회수).
 
 ### 다운샘플 결과 캐싱
 다운샘플 옵션이 있을 때 결과 이미지를 별도 디스크 키로 저장합니다. 같은 URL을 다른 사이즈로 다시 요청해도 디코딩이 한 번이면 됩니다.
@@ -80,6 +87,6 @@ ImagePipeline(configuration: .httpCache(diskCapacityMB: 100))
 
 ## See Also
 
-- [ImageRequest](ImageRequest.md)
+- [ImageRequest](ImageRequest.md) · [Prefetcher](Prefetcher.md)
 - [MemoryCache](../Caches/MemoryCache.md) · [DiskCache](../Caches/DiskCache.md)
 - [Networks](../Networks/Networks.md)
