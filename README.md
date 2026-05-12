@@ -63,7 +63,7 @@ prefetcher.prefetchImage(requests)
 Swift Package Manager:
 
 ```swift
-.package(url: "https://github.com/kimkyuchul/KCImageCache.git", branch: "main")
+.package(url: "https://github.com/kimkyuchul/KCImageCache.git", from: "1.0.0")
 ```
 
 패키지에서 두 product를 제공합니다.
