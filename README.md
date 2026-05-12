@@ -1,14 +1,61 @@
 <p align="center">
-  <img src="assets/banner.png" alt="KCImageCache" height="300">
+  <img src="assets/banner.png" alt="KCImageCache" width="100%">
 </p>
 
-KCImageCache는 iOS 앱에서 이미지를 다운로드하고 캐싱하기 위한 라이브러리입니다. Swift 6 동시성 위에서 동작하며, 메모리·디스크 2계층 캐시, 같은 URL 동시 요청 합치기, 셀 재사용·뷰 해제 시 자동 취소 같은 기본기를 표준으로 제공합니다. SwiftUI와 UIKit 통합을 모두 포함합니다.
+# KCache
 
-Memory & Disk Cache · Request Dedup · Auto Cancellation · Downsampling · SwiftUI · UIKit · Swift 6 Concurrency
+Kim**K**yu**C**hul · iOS Cache Library
+
+iOS 앱에서 이미지를 다운로드하고 캐싱하기 위한 라이브러리입니다. Swift 6 동시성 위에서 동작하며, 메모리·디스크 2계층 캐시와 중복 요청 합치기, 뷰 해제 시 자동 취소 같은 기본기를 표준으로 제공합니다. (SwiftUI와 UIKit 통합을 모두 포함합니다.)
+
+> **Memory & Disk Cache** · **Request Coalescing** · **Auto Cancellation** · **Prefetching** · **Downsampling** · **SwiftUI** · **UIKit** · **Swift 6 Concurrency**
+
+## Usage
+
+`ImagePipeline`로 이미지를 로드합니다.
+
+```swift
+let pipeline = ImagePipeline(configuration: .default)
+let image = try await pipeline.loadImage(for: ImageRequest(url: url))
+```
+
+또는 SwiftUI [`KCImage`](Documentation/UI/SwiftUI.md), UIKit [`UIImageView+KCImage`](Documentation/UI/UIKit.md)로도 동일한 파이프라인을 사용할 수 있습니다.
+
+```swift
+KCImage(request: ImageRequest(url: url)) { state in
+    switch state {
+    case .loading:           ProgressView()
+    case .success(let img):  img.resizable().scaledToFit()
+    case .failure:           Image(systemName: "photo")
+    }
+}
+```
+
+리스트/그리드 스크롤 시 미리 캐시에 적재하려면 [`KCImagePrefetcher`](Documentation/ImagePipeline/Prefetcher.md)를 사용합니다.
+
+```swift
+let prefetcher = KCImagePrefetcher()
+prefetcher.prefetchImage(requests)
+```
+
+## Documentation
+
+| 모듈 | 설명 |
+| --- | --- |
+| [**ImagePipeline**](Documentation/ImagePipeline/ImagePipeline.md) | 이미지 로드 진입점 |
+| [**ImageRequest**](Documentation/ImagePipeline/ImageRequest.md) | 이미지 요청 정의 (URL, 다운샘플) |
+| [**Prefetcher**](Documentation/ImagePipeline/Prefetcher.md) | 이미지 미리 적재 |
+| [**MemoryCache**](Documentation/Caches/MemoryCache.md) | 메모리 캐시 (LRU) |
+| [**DiskCache**](Documentation/Caches/DiskCache.md) | 디스크 캐시 (LRU) |
+| [**Networks**](Documentation/Networks/Networks.md) | 이미지 다운로드 |
+| [**SwiftUI**](Documentation/UI/SwiftUI.md) | `KCImage` 컴포넌트 |
+| [**UIKit**](Documentation/UI/UIKit.md) | `UIImageView` 확장 |
+
+전체 개요는 [`Documentation/KCache.md`](Documentation/KCache.md)를 참고하세요.
 
 ## Requirements
 
-- iOS 16.0+ (iPadOS 포함)
+- iOS 16.0+
 - Swift 6.0+ (Xcode 16+)
 
 ## Installation
@@ -19,37 +66,12 @@ Swift Package Manager:
 .package(url: "https://github.com/kimkyuchul/KCImageCache.git", branch: "main")
 ```
 
-## Usage
+패키지에서 두 product를 제공합니다.
 
-### SwiftUI
-
-```swift
-import KCImageCache
-
-KCImage(request: ImageRequest(url: url)) { state in
-    switch state {
-    case .loading:           ProgressView()
-    case .success(let img):  img.resizable().scaledToFit()
-    case .failure:           Image(systemName: "photo")
-    }
-}
-```
-
-### UIKit
-
-```swift
-import KCImageCache
-
-imageView.setKCImage(
-    with: ImageRequest(url: url),
-    placeholder: UIImage(named: "placeholder"),
-    failure: UIImage(systemName: "photo")
-)
-```
-
-## Documentation
-
-전체 가이드는 [`Documentation/KCache.md`](Documentation/KCache.md)를 참고하세요. 컴포넌트별 문서는 [`Documentation/`](Documentation/) 폴더에 있습니다.
+| Product | 용도 |
+| --- | --- |
+| **KCImageCache** | 이미지 로드 코어 (`ImagePipeline`, `ImageRequest`, 캐시) |
+| **KCImageCacheUI** | SwiftUI `KCImage`, UIKit `UIImageView+KCImage` |
 
 ## License
 

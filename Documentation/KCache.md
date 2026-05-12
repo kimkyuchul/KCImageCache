@@ -42,7 +42,7 @@ struct MyApp: App {
 
 ## Topics
 
-- [ImagePipeline](ImagePipeline/ImagePipeline.md) · [ImageRequest](ImagePipeline/ImageRequest.md)
+- [ImagePipeline](ImagePipeline/ImagePipeline.md) · [ImageRequest](ImagePipeline/ImageRequest.md) · [Prefetcher](ImagePipeline/Prefetcher.md)
 - [MemoryCache](Caches/MemoryCache.md) · [DiskCache](Caches/DiskCache.md)
 - [Networks](Networks/Networks.md)
 - [SwiftUI](UI/SwiftUI.md) · [UIKit](UI/UIKit.md)

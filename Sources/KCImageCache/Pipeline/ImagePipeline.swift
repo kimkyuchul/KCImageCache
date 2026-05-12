@@ -44,8 +44,8 @@ public final class ImagePipeline {
     private let decoder: any ImageDecoder
     private let encoder: any ImageEncoder
 
-    /// 진행 중 Task. 같은 키는 합류.
-    private var map: [String: Task<UIImage, Error>] = [:]
+    /// 같은 캐시 키로 동시 진행되는 네트워크 요청을 하나로 합칩니다.
+    private let sharedTask = AsyncSharedTask<UIImage>()
 
     private nonisolated let lifecycleTask: Locked<Task<Void, Never>?> = Locked(nil)
 
@@ -79,31 +79,16 @@ public final class ImagePipeline {
         try await _loadImage(request)
     }
 
-    /// 메모리 → 디스크 → 진행 중 요청 → 네트워크 순으로 시도.
+    /// 메모리 → 디스크 → 공유 네트워크 작업 순으로 시도.
     private func _loadImage(_ request: ImageRequest) async throws -> UIImage {
-        let memKey = request.cacheKey
+        let key = request.cacheKey
 
-        if let image = memoryCache?.value(for: memKey) {
-            return image
-        }
-        if let image = loadFromDisk(request: request) {
-            return image
-        }
-        if let existing = map[memKey] {
-            let value = try await existing.value
-            try Task.checkCancellation()
-            return value
-        }
+        if let image = memoryCache?.value(for: key) { return image }
+        if let image = loadFromDisk(request: request) { return image }
 
-        let task = Task<UIImage, Error> { @KCImagePipelineActor [self] in
-            defer { self.map[memKey] = nil }
-            return try await loadFromNetwork(request: request)
+        return try await sharedTask.join(key: key) { [self] in
+            try await loadFromNetwork(request: request)
         }
-        map[memKey] = task
-
-        let value = try await task.value
-        try Task.checkCancellation()
-        return value
     }
 
     // MARK: - Cascade Helpers
