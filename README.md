@@ -38,6 +38,16 @@ let prefetcher = KCImagePrefetcher()
 prefetcher.prefetchImage(requests)
 ```
 
+## Architecture
+
+<p align="center">
+  <img src="assets/architecture.png" alt="KCache Architecture" width="280">
+</p>
+
+`loadImage()` 호출은 메모리 → 디스크 → 네트워크 순으로 내려가며, 어느 단계든 hit이 나면 즉시 `UIImage`를 돌려줍니다. 리스트가 빠르게 스크롤되며 같은 URL이 여러 번 동시에 들어와도 네트워크에는 한 번만 나가고, 진행 중인 작업에 합류해 결과를 나눠 받습니다.
+
+내부 동작과 설정 옵션은 [`ImagePipeline`](Documentation/ImagePipeline/ImagePipeline.md) 문서를 참고하세요.
+
 ## Documentation
 
 | 모듈 | 설명 |
