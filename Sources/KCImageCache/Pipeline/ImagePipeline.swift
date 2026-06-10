@@ -118,7 +118,7 @@ public final class ImagePipeline {
     /// 네트워크 다운로드 + 디코드 → 디스크·메모리 저장.
     private func loadFromNetwork(request: ImageRequest) async throws -> UIImage {
         let data = try await fetcher.data(for: request.url)
-        let image = try decoder.decode(data, options: request.options)
+        let image = try await decode(data, options: request.options)
 
         diskCache?.store(data, for: request.originalDiskKey)
         if let key = request.encodedDiskKey, let encoded = try? encoder.encode(image) {
@@ -126,6 +126,16 @@ public final class ImagePipeline {
         }
         memoryCache?.set(image, for: request.cacheKey)
         return image
+    }
+
+    // MARK: - Decoding
+
+    /// 디코딩을 액터 밖 공용 풀에서 병렬 실행.
+    @concurrent
+    private nonisolated func decode(
+        _ data: Data, options: ImageRequestOptions?
+    ) async throws -> UIImage {
+        try decoder.decode(data, options: options)
     }
 
     private func handleMemoryWarning() {
