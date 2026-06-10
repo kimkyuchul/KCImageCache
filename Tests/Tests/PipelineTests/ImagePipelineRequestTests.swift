@@ -85,8 +85,8 @@ struct ImagePipelineRequestTests {
         _ = try await sut.loadImage(request)
 
         // Then
-        #expect(disk.data(for: request.originalDiskKey) != nil)
-        #expect(disk.data(for: request.encodedDiskKey!) != nil)
+        #expect(await disk.data(for: request.originalDiskKey) != nil)
+        #expect(await disk.data(for: request.encodedDiskKey!) != nil)
     }
 
     @Test("옵션 없는 요청 → originalDiskKey 만, encoded 없음")
@@ -102,7 +102,7 @@ struct ImagePipelineRequestTests {
         _ = try await sut.loadImage(request)
 
         // Then
-        #expect(disk.data(for: request.originalDiskKey) != nil)
+        #expect(await disk.data(for: request.originalDiskKey) != nil)
         #expect(request.encodedDiskKey == nil)
     }
 

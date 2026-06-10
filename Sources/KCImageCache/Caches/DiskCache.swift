@@ -47,6 +47,12 @@ public final class DiskCache: Sendable {
         qos: .utility
     )
 
+    /// 읽기/쓰기용 serial I/O 큐. 블로킹 파일 I/O 를 액터 밖에서 직렬 처리해 race 를 막습니다.
+    private let ioQueue = DispatchQueue(
+        label: "com.kimkyuchul.KCImageCache.io",
+        qos: .userInitiated
+    )
+
     // MARK: - Init
 
     /// 디스크 캐시를 생성하고 init 시 자동 sweep 을 1회 평가합니다.
@@ -74,14 +80,33 @@ public final class DiskCache: Sendable {
     // MARK: - Write
 
     /// 데이터를 저장합니다. 같은 키는 덮어쓰며, 실패는 silent 처리.
-    public func store(_ data: Data, for key: String) {
+    /// ioQueue 에서 수행해 액터를 막지 않고, `await` 완료로 read-after-write 가 보장됩니다.
+    public func store(_ data: Data, for key: String) async {
+        await withCheckedContinuation { continuation in
+            ioQueue.async {
+                self.writeData(data, for: key)
+                continuation.resume()
+            }
+        }
+    }
+
+    private func writeData(_ data: Data, for key: String) {
         try? data.write(to: fileURL(for: key), options: .atomic)
     }
 
     // MARK: - Read
 
     /// 키에 해당하는 데이터를 반환합니다. read 시 `contentAccessDate` 갱신.
-    public func data(for key: String) -> Data? {
+    /// ioQueue 에서 파일 I/O 를 수행해 액터를 막지 않습니다.
+    public func data(for key: String) async -> Data? {
+        await withCheckedContinuation { continuation in
+            ioQueue.async {
+                continuation.resume(returning: self.readData(for: key))
+            }
+        }
+    }
+
+    private func readData(for key: String) -> Data? {
         let url = fileURL(for: key)
         guard FileManager.default.fileExists(atPath: url.path) else {
             return nil

@@ -84,7 +84,7 @@ public final class ImagePipeline {
         let key = request.cacheKey
 
         if let image = memoryCache?.value(for: key) { return image }
-        if let image = loadFromDisk(request: request) { return image }
+        if let image = await loadFromDisk(request: request) { return image }
 
         return try await sharedTask.join(key: key) { [self] in
             try await loadFromNetwork(request: request)
@@ -93,23 +93,24 @@ public final class ImagePipeline {
 
     // MARK: - Cascade Helpers
 
-    /// 다운샘플 디스크 우선, 없으면 원본 디스크.
-    private func loadFromDisk(request: ImageRequest) -> UIImage? {
+    /// 다운샘플 디스크 우선, 없으면 원본. 읽기·디코딩 모두 await 로 액터 밖에서 수행.
+    private func loadFromDisk(request: ImageRequest) async -> UIImage? {
         guard let diskCache else { return nil }
 
+        // encoded 우선, 디코딩 실패 시 원본 경로로 폴백.
         if let key = request.encodedDiskKey,
-           let data = diskCache.data(for: key),
-           let image = try? decoder.decode(data, options: nil) {
+           let data = await diskCache.data(for: key),
+           let image = try? await decode(data, options: nil) {
             memoryCache?.set(image, for: request.cacheKey)
             return image
         }
 
-        guard let raw = diskCache.data(for: request.originalDiskKey),
-              let image = try? decoder.decode(raw, options: request.options) else {
+        guard let raw = await diskCache.data(for: request.originalDiskKey),
+              let image = try? await decode(raw, options: request.options) else {
             return nil
         }
         if let key = request.encodedDiskKey, let encoded = try? encoder.encode(image) {
-            diskCache.store(encoded, for: key)
+            await diskCache.store(encoded, for: key)
         }
         memoryCache?.set(image, for: request.cacheKey)
         return image
@@ -120,9 +121,9 @@ public final class ImagePipeline {
         let data = try await fetcher.data(for: request.url)
         let image = try await decode(data, options: request.options)
 
-        diskCache?.store(data, for: request.originalDiskKey)
+        await diskCache?.store(data, for: request.originalDiskKey)
         if let key = request.encodedDiskKey, let encoded = try? encoder.encode(image) {
-            diskCache?.store(encoded, for: key)
+            await diskCache?.store(encoded, for: key)
         }
         memoryCache?.set(image, for: request.cacheKey)
         return image

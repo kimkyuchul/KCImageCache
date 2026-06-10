@@ -28,7 +28,7 @@ struct ImagePipelineTests {
         // Then
         #expect(result === Sample.image)
         #expect(fetcher.callCount == 0)
-        #expect(disk.data(for: key) == nil)
+        #expect(await disk.data(for: key) == nil)
     }
 
     @Test("디스크 hit → 메모리 promote")
@@ -38,7 +38,7 @@ struct ImagePipelineTests {
         let disk = try DiskCache.makeForTesting()
         let fetcher = MockImageDataFetcher()
         let url = URL.makeForTesting(), key = url.absoluteString
-        disk.store(Sample.imageData, for: key)
+        await disk.store(Sample.imageData, for: key)
         let sut = ImagePipeline.makeForTesting(memoryCache: memory, diskCache: disk, fetcher: fetcher)
 
         // When
@@ -63,7 +63,7 @@ struct ImagePipelineTests {
 
         // Then
         #expect(fetcher.callCount == 1)
-        #expect(disk.data(for: key) == Sample.imageData)
+        #expect(await disk.data(for: key) == Sample.imageData)
         #expect(memory.contains(key))
     }
 
@@ -117,7 +117,7 @@ struct ImagePipelineTests {
 
         // Then
         #expect(fetcher.callCount == 1)
-        #expect(disk.data(for: url.absoluteString) == Sample.imageData)
+        #expect(await disk.data(for: url.absoluteString) == Sample.imageData)
     }
 
     @Test("diskCache nil → 두번째 호출 메모리 hit")
@@ -144,7 +144,7 @@ struct ImagePipelineTests {
         let disk = try DiskCache.makeForTesting()
         let fetcher = MockImageDataFetcher(.success(Sample.imageData))
         let url = URL.makeForTesting(), key = url.absoluteString
-        disk.store(Data([0xFF, 0x00, 0xFF]), for: key)
+        await disk.store(Data([0xFF, 0x00, 0xFF]), for: key)
         let sut = ImagePipeline.makeForTesting(memoryCache: memory, diskCache: disk, fetcher: fetcher)
 
         // When
@@ -152,7 +152,7 @@ struct ImagePipelineTests {
 
         // Then
         #expect(fetcher.callCount == 1)
-        #expect(disk.data(for: key) == Sample.imageData)
+        #expect(await disk.data(for: key) == Sample.imageData)
         #expect(memory.contains(key))
     }
 }
