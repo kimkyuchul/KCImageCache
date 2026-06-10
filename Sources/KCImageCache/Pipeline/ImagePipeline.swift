@@ -139,6 +139,8 @@ public final class ImagePipeline {
         try decoder.decode(data, options: options)
     }
 
+    // MARK: - Memory Warning
+
     private func handleMemoryWarning() {
         memoryCache?.removeAll()
     }
