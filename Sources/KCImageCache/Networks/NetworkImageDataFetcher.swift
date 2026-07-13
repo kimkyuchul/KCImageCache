@@ -9,7 +9,6 @@ import Foundation
 
 /// `ImageDataFetcher` 의 `URLSession` 기반 구현.
 public struct NetworkImageDataFetcher: ImageDataFetcher {
-
     private let session: URLSession
 
     public init(session: URLSession = NetworkImageDataFetcher.defaultSession) {
@@ -26,7 +25,6 @@ public struct NetworkImageDataFetcher: ImageDataFetcher {
 // MARK: - Default Session
 
 extension NetworkImageDataFetcher {
-
     /// 라이브러리 전용 `URLSession`. timeout 30s, URLCache 비활성.
     public static let defaultSession: URLSession = {
         let config = URLSessionConfiguration.default
@@ -39,7 +37,6 @@ extension NetworkImageDataFetcher {
 // MARK: - URLCache Factory
 
 extension NetworkImageDataFetcher {
-
     /// `URLCache` 를 활성한 fetcher. ETag·Cache-Control 자동 처리.
     public static func urlCached(diskCapacityMB: Int = 100) -> NetworkImageDataFetcher {
         let config = URLSessionConfiguration.default
@@ -57,7 +54,6 @@ extension NetworkImageDataFetcher {
 // MARK: - Response Validation
 
 private extension NetworkImageDataFetcher {
-
     static func validateResponse(_ response: URLResponse) throws {
         guard let http = response as? HTTPURLResponse else {
             throw ImageDataFetcherError.invalidResponse
