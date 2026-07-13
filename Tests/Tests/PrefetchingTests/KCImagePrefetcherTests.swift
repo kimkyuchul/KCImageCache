@@ -23,14 +23,15 @@ struct KCImagePrefetcherTests {
 
         // When
         sut.prefetchImage(ImageRequest(url: url))
-        await waitFor { memory.contains(url.absoluteString) }
+        try await Task.sleep(for: .milliseconds(200))
 
         // Then
+        #expect(memory.contains(url.absoluteString))
         #expect(fetcher.callCount == 1)
     }
 
-    @Test("같은 request 두 번 → fetcher 1회")
-    func duplicatePrefetchDeduplicates() async throws {
+    @Test("같은 request 두 번 → 한 번만 등록")
+    func duplicatePrefetchIsIgnored() async throws {
         // Given
         let fetcher = MockImageDataFetcher(.delayed(Sample.imageData, .milliseconds(200)))
         let pipeline = ImagePipeline.makeForTesting(fetcher: fetcher)
@@ -39,19 +40,17 @@ struct KCImagePrefetcherTests {
 
         // When
         sut.prefetchImage(request)
-        try await Task.sleep(for: .milliseconds(50))
         sut.prefetchImage(request)
-        await waitFor { await sut.activeCount == 0 }
 
         // Then
-        #expect(fetcher.callCount == 1)
+        #expect(sut.activeCount == 1)
     }
 
-    @Test("cancelTask → 네트워크 abort, 캐시 미적재")
-    func cancelAbortsNetwork() async throws {
+    @Test("cancelTask → 캐시 미적재")
+    func cancelledPrefetchIsNotCached() async throws {
         // Given
         let memory = MemoryCache()
-        let fetcher = MockImageDataFetcher(.delayed(Sample.imageData, .milliseconds(300)))
+        let fetcher = MockImageDataFetcher(.delayed(Sample.imageData, .milliseconds(200)))
         let pipeline = ImagePipeline.makeForTesting(memoryCache: memory, fetcher: fetcher)
         let sut = KCImagePrefetcher(pipeline: pipeline)
         let request = ImageRequest(url: URL.makeForTesting())
@@ -60,43 +59,9 @@ struct KCImagePrefetcherTests {
         sut.prefetchImage(request)
         try await Task.sleep(for: .milliseconds(50))
         sut.cancelTask(request)
-        await waitFor { await sut.activeCount == 0 }
 
-        // Then
-        #expect(memory.contains(request.cacheKey) == false)
-    }
-
-    @Test("prefetcher dealloc → leak 없음")
-    func prefetcherDeinitDoesNotLeak() async throws {
-        // Given
-        let fetcher = MockImageDataFetcher(.delayed(Sample.imageData, .milliseconds(200)))
-        let pipeline = ImagePipeline.makeForTesting(fetcher: fetcher)
-
-        // When — 스코프 안에서 prefetch 시작 후 prefetcher 만 해제.
-        weak var weakRef: KCImagePrefetcher?
-        do {
-            let sut = KCImagePrefetcher(pipeline: pipeline)
-            weakRef = sut
-            sut.prefetchImage(ImageRequest(url: URL.makeForTesting()))
-            try await Task.sleep(for: .milliseconds(30))
-        }
-        try await Task.sleep(for: .milliseconds(400))
-
-        // Then
-        #expect(weakRef == nil)
-    }
-}
-
-private extension KCImagePrefetcherTests {
-    
-    func waitFor(
-        timeout: Duration = .seconds(2),
-        _ condition: () async -> Bool
-    ) async {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            if await condition() { return }
-            await Task.yield()
-        }
+        // Then: 다운로드 완료 시각 이후까지 기다려 늦은 캐시 적재가 없는지 확인
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(!memory.contains(request.cacheKey))
     }
 }

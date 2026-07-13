@@ -80,7 +80,7 @@ struct ImageDecoderTests {
         #expect(image.scale == 3.0)
     }
 
-    @Test("같은 옵션 두 번 디코드 → 픽셀 크기 멱등")
+    @Test("같은 옵션 두 번 디코드 → 픽셀 크기 동일")
     func sameOptionsProduceSamePixelSize() throws {
         // Given
         let decoder = DefaultImageDecoder()

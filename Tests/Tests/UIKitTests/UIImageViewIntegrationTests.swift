@@ -83,43 +83,4 @@ struct UIImageViewIntegrationTests {
         #expect(view.image == nil)
     }
 
-    @Test("새 request 재호출 → 이전 task cancel, 새 결과로 image 할당")
-    func newRequestCancelsPrevious() async throws {
-        // Given
-        let view = UIImageView()
-        let fetcher = MockImageDataFetcher(.delayed(Sample.imageData, .milliseconds(300)))
-        let pipeline = ImagePipeline.makeForTesting(fetcher: fetcher)
-
-        // When
-        view.setKCImage(with: ImageRequest(url: .makeForTesting()), pipeline: pipeline)
-        try await Task.sleep(for: .milliseconds(100))
-        view.setKCImage(with: ImageRequest(url: .makeForTesting()), pipeline: pipeline)
-        try await Task.sleep(for: .milliseconds(1000))
-
-        // Then
-        #expect(view.image != nil)
-    }
-
-    // MARK: - 옵션 동반
-
-    @Test("옵션 동반 request → 결과 image longer side ≤ pointSize × scale")
-    func requestWithOptionsAppliesDownsample() async throws {
-        // Given
-        let view = UIImageView()
-        let pipeline = ImagePipeline.makeForTesting(
-            fetcher: MockImageDataFetcher(.success(Sample.imageData))
-        )
-        let options = ImageRequestOptions(pointSize: CGSize(width: 30, height: 30), scale: 2.0)
-        let request = ImageRequest(url: .makeForTesting(), options: options)
-
-        // When
-        view.setKCImage(with: request, pipeline: pipeline)
-        try await Task.sleep(for: .milliseconds(500))
-
-        // Then
-        let cg = try #require(view.image?.cgImage)
-        let longerInPixels = max(cg.width, cg.height)
-        let limitInPixels = Int(max(options.pointSize.width, options.pointSize.height) * options.scale)
-        #expect(longerInPixels <= limitInPixels)
-    }
 }

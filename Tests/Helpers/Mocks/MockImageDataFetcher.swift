@@ -11,7 +11,7 @@ import Foundation
 final class MockImageDataFetcher: ImageDataFetcher {
     enum Behavior: Sendable {
         case success(Data)
-        case failure(Error)
+        case failure(any Error)
         /// 지정된 시간만큼 await 한 후 데이터 반환
         case delayed(Data, Duration)
     }
