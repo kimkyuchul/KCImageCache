@@ -10,83 +10,92 @@ import Foundation
 /// `UICollectionViewDataSourcePrefetching` 등 prefetch 콜백과 연동되는 prefetcher.
 ///
 /// 결과 이미지는 호출자에게 반환하지 않고 캐시에만 미리 적재합니다.
-/// `cancelTask` 는 `ImagePipeline` 의 실제 취소 메커니즘을 통해 네트워크 작업까지 중단시킵니다.
-@KCImagePipelineActor
 public final class KCImagePrefetcher: Sendable {
 
+    private struct PrefetchTask {
+        let id: UUID
+        let task: Task<Void, Never>
+    }
+
     private let pipeline: ImagePipeline
-    private var inFlight: [ImageRequest: Task<Void, Never>] = [:]
-    
-    internal var activeCount: Int { inFlight.count }
+
+    private let tasks = Locked<[ImageRequest: PrefetchTask]>([:])
+
+    /// 추적 중인 prefetch 수.
+    internal var activeCount: Int {
+        tasks.withLockRead { $0.count }
+    }
 
     // MARK: - Init
 
-    nonisolated public convenience init() {
+    public convenience init() {
         self.init(pipeline: .shared)
     }
 
-    nonisolated public init(pipeline: ImagePipeline) {
+    public init(pipeline: ImagePipeline) {
         self.pipeline = pipeline
     }
 
     // MARK: - Prefetch
 
     /// 지정된 request 를 사전 로드합니다.
-    nonisolated public func prefetchImage(_ request: ImageRequest) {
-        Task { @KCImagePipelineActor [weak self] in
-            self?._prefetch(request)
+    public func prefetchImage(_ request: ImageRequest) {
+        tasks.withLock { tasks in
+            start(request, in: &tasks)
         }
     }
 
-    nonisolated public func prefetchImage(_ requests: [ImageRequest]) {
-        Task { @KCImagePipelineActor [weak self] in
-            guard let self else { return }
-            for request in requests { self._prefetch(request) }
-        }
-    }
-
-    private func _prefetch(_ request: ImageRequest) {
-        guard inFlight[request] == nil else { return }
-
-        let task = Task { [weak self, request] in
-            _ = try? await self?.pipeline.loadImage(request)
-
-            if !Task.isCancelled {
-                self?.inFlight.removeValue(forKey: request)
+    /// 지정된 request 들을 사전 로드합니다. 락은 배치당 1회만 잡는다.
+    public func prefetchImage(_ requests: [ImageRequest]) {
+        tasks.withLock { tasks in
+            for request in requests {
+                start(request, in: &tasks)
             }
         }
-        inFlight[request] = task
+    }
+
+    /// 락 안에서만 호출. finish 가 등록보다 먼저 실행되지 않도록 등록과 Task 생성을 한 임계구역에서 처리.
+    private func start(_ request: ImageRequest, in tasks: inout [ImageRequest: PrefetchTask]) {
+        guard tasks[request] == nil else { return }
+
+        let id = UUID()
+        let task = Task { [weak self, pipeline] in
+            _ = try? await pipeline.loadImage(request)
+            self?.finish(request, id: id)
+        }
+        tasks[request] = PrefetchTask(id: id, task: task)
+    }
+
+    private func finish(_ request: ImageRequest, id: UUID) {
+        tasks.withLock { tasks in
+            guard tasks[request]?.id == id else { return }
+            tasks[request] = nil
+        }
     }
 
     // MARK: - Cancel
 
     /// 지정된 request 의 사전 로드를 취소합니다.
-    nonisolated public func cancelTask(_ request: ImageRequest) {
-        Task { @KCImagePipelineActor [weak self] in
-            if let task = self?.inFlight.removeValue(forKey: request) {
-                task.cancel()
-            }
-        }
+    public func cancelTask(_ request: ImageRequest) {
+        let cancelled = tasks.withLock { $0.removeValue(forKey: request)?.task }
+        cancelled?.cancel()
     }
 
-    nonisolated public func cancelTask(_ requests: [ImageRequest]) {
-        Task { @KCImagePipelineActor [weak self] in
-            guard let self else { return }
-            for request in requests {
-                if let task = self.inFlight.removeValue(forKey: request) {
-                    task.cancel()
-                }
-            }
+    /// 지정된 request 들의 사전 로드를 취소합니다.
+    public func cancelTask(_ requests: [ImageRequest]) {
+        let cancelled = tasks.withLock { tasks in
+            requests.compactMap { tasks.removeValue(forKey: $0)?.task }
         }
+        for task in cancelled { task.cancel() }
     }
 
     /// 추적 중인 모든 사전 로드를 취소합니다.
-    nonisolated public func cancelTask() {
-        Task { @KCImagePipelineActor [weak self] in
-            guard let self else { return }
-            let all = self.inFlight
-            self.inFlight.removeAll()
-            for (_, task) in all { task.cancel() }
+    public func cancelTask() {
+        let cancelled = tasks.withLock { tasks in
+            let all = tasks.values.map(\.task)
+            tasks.removeAll()
+            return all
         }
+        for task in cancelled { task.cancel() }
     }
 }
