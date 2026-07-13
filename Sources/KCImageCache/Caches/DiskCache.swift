@@ -6,25 +6,23 @@
 //
 
 import Foundation
-import CryptoKit
 
 /// 디코드 전 `Data` 를 영속 디스크에 저장하는 LRU 캐시.
 ///
 /// ```swift
 /// let cache = try DiskCache(sizeLimit: 200 * 1024 * 1024)
-/// cache.store(data, for: "key")
-/// let cached = cache.data(for: "key")
+/// await cache.store(data, for: "key")
+/// let cached = await cache.data(for: "key")
 /// ```
 public final class DiskCache: Sendable {
-
     // MARK: - Constants
-
+    
     /// 기본 sizeLimit. 200MB.
     public static let defaultSizeLimit: Int = 200 * 1024 * 1024
-
-    /// 자동 sweep throttle 간격. 30분.
-    public static let defaultSweepInterval: TimeInterval = 1800
-
+    
+    /// sweep 삭제 목표 비율. 초과 시 `sizeLimit` × 이 값까지 줄임.
+    static let trimRatio = 0.5
+    
     /// 기본 캐시 디렉토리. `<Caches>/KCImageCache/`.
     public static let defaultDirectory: URL = {
         let caches = FileManager.default
@@ -32,28 +30,25 @@ public final class DiskCache: Sendable {
             .first ?? URL(fileURLWithPath: NSTemporaryDirectory())
         return caches.appendingPathComponent("KCImageCache", isDirectory: true)
     }()
-
-    private static let metadataFileName = ".kc-cache-info"
-
+    
     // MARK: - Storage
-
+    
     let directory: URL
     private let sizeLimit: Int
-    private let sweepInterval: TimeInterval
-
-    /// 백그라운드 sweep 큐.
-    let queue = DispatchQueue(
-        label: "com.kimkyuchul.KCImageCache.sweep",
-        qos: .utility
-    )
-
+    
+    /// 모든 디스크 I/O 를 직렬화하는 큐. QoS 는 지정하지 않고 enqueue 시점의 QoS 를 상속.
+    /// 큐에 들어간 연산은 취소돼도 끝까지 실행.
+    let ioQueue: DispatchQueue
+    
+    /// sweep 전용 큐. `ioQueue` 를 target 으로 데이터 경로와 직렬화. 테스트가 이 큐만 suspend 가능.
+    let sweepQueue: DispatchQueue
+    
     // MARK: - Init
-
-    /// 디스크 캐시를 생성하고 init 시 자동 sweep 을 1회 평가합니다.
+    
+    /// 디스크 캐시를 생성하고 init 시 sweep 을 1회 실행합니다.
     public init(
         directory: URL = DiskCache.defaultDirectory,
-        sizeLimit: Int = DiskCache.defaultSizeLimit,
-        sweepInterval: TimeInterval = DiskCache.defaultSweepInterval
+        sizeLimit: Int = DiskCache.defaultSizeLimit
     ) throws {
         do {
             try FileManager.default.createDirectory(
@@ -63,143 +58,157 @@ public final class DiskCache: Sendable {
         } catch {
             throw DiskCacheError.directoryCreationFailed(directory, underlying: error)
         }
-
+        
         self.directory = directory
         self.sizeLimit = sizeLimit
-        self.sweepInterval = sweepInterval
-
-        scheduleSweep()
+        
+        let ioQueue = DispatchQueue(label: "com.kimkyuchul.KCImageCache.io")
+        self.ioQueue = ioQueue
+        self.sweepQueue = DispatchQueue(
+            label: "com.kimkyuchul.KCImageCache.sweep",
+            qos: .utility,
+            target: ioQueue
+        )
+        
+        // delay 는 테스트의 `withSuspendedSweep` 윈도우 확보용
+        sweepQueue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.sweep()
+        }
     }
-
+    
     // MARK: - Write
-
+    
     /// 데이터를 저장합니다. 같은 키는 덮어쓰며, 실패는 silent 처리.
-    public func store(_ data: Data, for key: String) {
-        try? data.write(to: fileURL(for: key), options: .atomic)
+    public func store(_ data: Data, for key: String) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            ioQueue.async {
+                try? data.write(to: self.fileURL(for: key), options: .atomic)
+                continuation.resume()
+            }
+        }
     }
-
+    
     // MARK: - Read
-
+    
     /// 키에 해당하는 데이터를 반환합니다. read 시 `contentAccessDate` 갱신.
-    public func data(for key: String) -> Data? {
-        let url = fileURL(for: key)
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            return nil
+    public func data(for key: String) async -> Data? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Data?, Never>) in
+            ioQueue.async {
+                var url = self.fileURL(for: key)
+                guard let data = try? Data(contentsOf: url) else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                
+                var values = URLResourceValues()
+                values.contentAccessDate = Date()
+                try? url.setResourceValues(values)
+                
+                continuation.resume(returning: data)
+            }
         }
-        guard let data = try? Data(contentsOf: url) else {
-            return nil
-        }
-
-        // URL 이 value type 이라 var 로 복사 후 attr 갱신
-        var mutable = url
-        var values = URLResourceValues()
-        values.contentAccessDate = Date()
-        try? mutable.setResourceValues(values)
-
-        return data
     }
-
+    
     // MARK: - Delete
-
-    /// 키에 해당하는 항목을 제거합니다. 실패는 silent.
-    public func removeData(for key: String) {
-        try? FileManager.default.removeItem(at: fileURL(for: key))
+    
+    /// 키에 해당하는 항목을 제거합니다.
+    public func removeData(for key: String) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            ioQueue.async {
+                try? FileManager.default.removeItem(at: self.fileURL(for: key))
+                continuation.resume()
+            }
+        }
     }
-
-    /// 모든 항목과 메타 파일을 제거합니다.
-    public func removeAll() {
-        let fileManager = FileManager.default
-        try? fileManager.removeItem(at: directory)
-        try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+    
+    /// 모든 항목을 제거합니다.
+    public func removeAll() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            ioQueue.async {
+                let fileManager = FileManager.default
+                try? fileManager.removeItem(at: self.directory)
+                try? fileManager.createDirectory(at: self.directory, withIntermediateDirectories: true)
+                continuation.resume()
+            }
+        }
     }
-
+    
     // MARK: - Inspection
-
+    
     /// 캐시 디렉토리의 총 디스크 사용량 (바이트).
     public var totalSize: Int {
-        let fileManager = FileManager.default
-        guard let urls = try? fileManager.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.totalFileAllocatedSizeKey],
-            options: .skipsHiddenFiles
-        ) else {
-            return 0
-        }
-        return urls.reduce(0) { sum, url in
-            let size = (try? url.resourceValues(forKeys: [.totalFileAllocatedSizeKey]))?
-                .totalFileAllocatedSize ?? 0
-            return sum + size
+        get async {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Int, Never>) in
+                ioQueue.async {
+                    continuation.resume(returning: self.cachedFiles().reduce(0) { $0 + $1.size })
+                }
+            }
         }
     }
-
+    
     // MARK: - Sweep
 
-    /// `sizeLimit` 초과 시 가장 오래된 파일부터 제거.
-    func sweep() {
-        let fileManager = FileManager.default
-        let keys: Set<URLResourceKey> = [.totalFileAllocatedSizeKey, .contentAccessDateKey]
-        guard let urls = try? fileManager.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: Array(keys),
-            options: .skipsHiddenFiles
-        ) else { return }
-
-        var items = urls.compactMap { url -> (url: URL, size: Int, accessDate: Date)? in
-            guard let r = try? url.resourceValues(forKeys: keys) else { return nil }
-            return (
-                url: url,
-                size: r.totalFileAllocatedSize ?? 0,
-                accessDate: r.contentAccessDate ?? .distantPast
-            )
-        }
-
-        var current = items.reduce(0) { $0 + $1.size }
-        guard current > sizeLimit else { return }
-
-        items.sort { $0.accessDate < $1.accessDate }
-
-        for item in items {
-            guard current > sizeLimit else { break }
-            try? fileManager.removeItem(at: item.url)
-            current -= item.size
+    /// sweep 을 sweepQueue 에 예약합니다.
+    func scheduleSweep() {
+        sweepQueue.async { [weak self] in
+            self?.sweep()
         }
     }
 
-    // MARK: - Schedule
-
-    /// init 시 sweep 평가. 간격 미만이면 no-op.
-    private func scheduleSweep() {
-        let metaURL = directory.appendingPathComponent(Self.metadataFileName)
-
-        if let data = try? Data(contentsOf: metaURL),
-           let last = try? JSONDecoder().decode(Date.self, from: data),
-           Date().timeIntervalSince(last) < sweepInterval {
-            return
-        }
-
-        // delay 는 테스트의 `withSuspendedSweep` 윈도우 확보용
-        queue.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self else { return }
-            self.sweep()
-            if let data = try? JSONEncoder().encode(Date()) {
-                try? data.write(to: metaURL, options: .atomic)
-            }
+    /// `sizeLimit` 초과 시 절반 크기가 될 때까지 가장 오래된 파일부터 제거.
+    func sweep() {
+        var files = cachedFiles()
+        var current = files.reduce(0) { $0 + $1.size }
+        guard current > sizeLimit else { return }
+        
+        let targetSize = Int(Double(sizeLimit) * Self.trimRatio)
+        files.sort { $0.accessDate < $1.accessDate }
+        
+        for file in files {
+            guard current > targetSize else { break }
+            try? FileManager.default.removeItem(at: file.url)
+            current -= file.size
         }
     }
 }
 
-// MARK: - Private Helpers
+// MARK: - File Directory Helpers
 
 extension DiskCache {
+    private struct CachedFile {
+        let url: URL
+        let size: Int
+        let accessDate: Date
+    }
+    
+    /// 캐시 디렉토리의 파일 목록을 크기·접근일과 함께 반환.
+    private func cachedFiles() -> [CachedFile] {
+        let keys: Set<URLResourceKey> = [.totalFileAllocatedSizeKey, .contentAccessDateKey]
+        let urls = (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: Array(keys),
+            options: .skipsHiddenFiles
+        )) ?? []
+        return urls.compactMap { url in
+            guard let values = try? url.resourceValues(forKeys: keys) else { return nil }
+            return CachedFile(
+                url: url,
+                size: values.totalFileAllocatedSize ?? 0,
+                accessDate: values.contentAccessDate ?? .distantPast
+            )
+        }
+    }
+}
 
-    /// 키를 SHA256 64자 hex 로 해싱한 파일명.
+// MARK: - URL Helpers
+
+extension DiskCache {
+    /// 키를 SHA256 해시한 파일명.
     private func fileURL(for key: String) -> URL {
-        let digest = SHA256.hash(data: Data(key.utf8))
-        let hex = digest.map { String(format: "%02x", $0) }.joined()
-        return directory.appendingPathComponent(hex)
+        directory.appendingPathComponent(key.sha256)
     }
 }
 
 public enum DiskCacheError: Error {
-    case directoryCreationFailed(URL, underlying: Error)
+    case directoryCreationFailed(URL, underlying: any Error)
 }

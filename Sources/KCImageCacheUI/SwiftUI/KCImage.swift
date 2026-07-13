@@ -22,7 +22,6 @@ import KCImageCache
 /// }
 /// ```
 public struct KCImage<Content: View>: View {
-
     @StateObject private var loader: KCImageLoader
     private let request: ImageRequest?
     private let makeContent: (KCImageState) -> Content

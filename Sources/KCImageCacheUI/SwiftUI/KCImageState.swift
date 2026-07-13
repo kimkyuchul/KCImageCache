@@ -17,5 +17,5 @@ public enum KCImageState {
     case success(Image)
 
     /// 로드 실패.
-    case failure(Error)
+    case failure(any Error)
 }

@@ -15,95 +15,95 @@ struct DiskCacheTests {
     // MARK: - Read
 
     @Test("빈 캐시 조회 → nil 반환")
-    func emptyCacheReturnsNil() throws {
+    func emptyCacheReturnsNil() async throws {
         // Given
         let sut = try DiskCache.makeForTesting()
 
         // When/Then
-        sut.withSuspendedSweep {
-            #expect(sut.data(for: "missing") == nil)
+        await sut.withSuspendedSweep {
+            #expect(await sut.data(for: "missing") == nil)
         }
     }
 
     @Test("store 후 같은 키 data(for:) → 같은 데이터 반환")
-    func storeThenData() throws {
+    func storeThenData() async throws {
         // Given
         let sut = try DiskCache.makeForTesting()
 
         // When/Then
-        sut.withSuspendedSweep {
-            sut.store(Sample.imageData, for: "key")
-            #expect(sut.data(for: "key") == Sample.imageData)
+        await sut.withSuspendedSweep {
+            await sut.store(Sample.imageData, for: "key")
+            #expect(await sut.data(for: "key") == Sample.imageData)
         }
     }
 
     // MARK: - Delete
 
     @Test("removeData → 지정 항목만 제거")
-    func removeDataRemovesOne() throws {
+    func removeDataRemovesOne() async throws {
         // Given
         let sut = try DiskCache.makeForTesting()
 
         // When/Then
-        sut.withSuspendedSweep {
-            sut.store(Sample.imageData, for: "a")
-            sut.store(Sample.imageData, for: "b")
-            sut.removeData(for: "a")
+        await sut.withSuspendedSweep {
+            await sut.store(Sample.imageData, for: "a")
+            await sut.store(Sample.imageData, for: "b")
+            await sut.removeData(for: "a")
 
-            #expect(sut.data(for: "a") == nil)
-            #expect(sut.data(for: "b") != nil)
+            #expect(await sut.data(for: "a") == nil)
+            #expect(await sut.data(for: "b") != nil)
         }
     }
 
     @Test("removeAll → 모든 항목 + totalSize 0")
-    func removeAllClears() throws {
+    func removeAllClears() async throws {
         // Given
         let sut = try DiskCache.makeForTesting()
 
         // When/Then
-        sut.withSuspendedSweep {
-            sut.store(Sample.imageData, for: "a")
-            sut.store(Sample.imageData, for: "b")
-            sut.removeAll()
+        await sut.withSuspendedSweep {
+            await sut.store(Sample.imageData, for: "a")
+            await sut.store(Sample.imageData, for: "b")
+            await sut.removeAll()
 
-            #expect(sut.totalSize == 0)
-            #expect(sut.data(for: "a") == nil)
+            #expect(await sut.totalSize == 0)
+            #expect(await sut.data(for: "a") == nil)
         }
     }
 
     // MARK: - Inspection
 
     @Test("totalSize → 빈 캐시 0, 저장 후 양수")
-    func totalSize() throws {
+    func totalSize() async throws {
         // Given
         let sut = try DiskCache.makeForTesting()
 
         // When/Then
-        sut.withSuspendedSweep {
-            #expect(sut.totalSize == 0)
-            sut.store(Sample.imageData, for: "1")
-            #expect(sut.totalSize > 0)
+        await sut.withSuspendedSweep {
+            #expect(await sut.totalSize == 0)
+            await sut.store(Sample.imageData, for: "1")
+            #expect(await sut.totalSize > 0)
         }
     }
 
     // MARK: - Sweep
 
-    @Test("sweep → sizeLimit 초과분 trim")
-    func sweep() throws {
-        // Given — 1MB 로 APFS 블록 정렬(~4KB) 영향 무시
+    @Test("sweep → 초과 시 sizeLimit 절반까지 trim")
+    func sweep() async throws {
+        // Given
         let mb = 1024 * 1024
         let sut = try DiskCache.makeForTesting(sizeLimit: mb * 3)
 
         // When/Then
-        sut.withSuspendedSweep {
-            sut.store(Data(repeating: 1, count: mb), for: "1")
-            sut.store(Data(repeating: 1, count: mb), for: "2")
-            sut.store(Data(repeating: 1, count: mb), for: "3")
-            sut.store(Data(repeating: 1, count: mb), for: "4")
+        await sut.withSuspendedSweep {
+            await sut.store(Data(repeating: 1, count: mb), for: "1")
+            await sut.store(Data(repeating: 1, count: mb), for: "2")
+            await sut.store(Data(repeating: 1, count: mb), for: "3")
+            await sut.store(Data(repeating: 1, count: mb), for: "4")
 
             sut.sweep()
 
-            #expect(sut.totalSize == mb * 3)
+            #expect(await sut.totalSize == mb * 1)
         }
     }
 }
@@ -111,10 +111,10 @@ struct DiskCacheTests {
 // MARK: - Test Helpers
 
 extension DiskCache {
-    /// 테스트용 — sweep 큐를 정지하고 클로저 실행 후 재개.
-    func withSuspendedSweep(_ closure: () -> Void) {
-        queue.suspend()
-        closure()
-        queue.resume()
+    /// 테스트용: sweep 큐만 정지하고 클로저 실행 후 재개. 데이터 경로(ioQueue)는 계속 동작.
+    func withSuspendedSweep(_ closure: () async -> Void) async {
+        sweepQueue.suspend()
+        await closure()
+        sweepQueue.resume()
     }
 }

@@ -17,6 +17,13 @@ import UIKit
 ///
 /// `countLimit` 또는 `costLimit` 초과 시 가장 오래 안 쓴 항목부터 제거됩니다.
 public final class MemoryCache: Sendable {
+    // MARK: - Constants
+
+    /// 기본 cost 한도. 디바이스 물리 메모리의 15% (최대 512MB).
+    public static let defaultCostLimit: Int = {
+        let phys = Int(ProcessInfo.processInfo.physicalMemory)
+        return min(phys / 100 * 15, 512 * 1024 * 1024)
+    }()
 
     // MARK: - Internal Types
 
@@ -38,12 +45,6 @@ public final class MemoryCache: Sendable {
     private let costLimit: Int
     private let state: Locked<State>
 
-    /// 기본 cost 한도 — 디바이스 물리 메모리의 15% (최대 512MB).
-    public static let defaultCostLimit: Int = {
-        let phys = Int(ProcessInfo.processInfo.physicalMemory)
-        return min(phys / 100 * 15, 512 * 1024 * 1024)
-    }()
-
     // MARK: - Init
 
     /// 메모리 캐시를 생성합니다.
@@ -64,13 +65,10 @@ public final class MemoryCache: Sendable {
     /// 키에 해당하는 이미지를 반환합니다. 조회 시 LRU `lastAccess` 갱신.
     public func value(for key: String) -> UIImage? {
         state.withLock { state in
-            // Dictionary 조회는 복사본 — var 로 받아야 lastAccess 변경 가능
-            guard var cached = state.storage[key] else { return nil }
-
+            guard let image = state.storage[key]?.image else { return nil }
             state.accessCounter &+= 1
-            cached.lastAccess = state.accessCounter
-            state.storage[key] = cached
-            return cached.image
+            state.storage[key]?.lastAccess = state.accessCounter
+            return image
         }
     }
 
@@ -78,7 +76,7 @@ public final class MemoryCache: Sendable {
 
     /// 이미지를 저장합니다. 같은 키는 덮어쓰며, 한도 초과 시 LRU 순으로 제거.
     public func set(_ image: UIImage, for key: String) {
-        // 락 밖에서 cost 측정 — 임계 구역을 짧게 유지
+        // 임계 구역을 짧게 유지하기 위해 락 밖에서 cost 측정
         let cost = Self.estimatedCost(of: image)
 
         state.withLock { state in
@@ -146,7 +144,6 @@ extension MemoryCache {
         while state.storage.count > countLimit
            || state.totalCost > costLimit {
 
-            // lastAccess 가장 작은 = 가장 오래 안 쓴 항목
             guard let oldest = state.storage.min(by: {
                 $0.value.lastAccess < $1.value.lastAccess
             }) else { return }

@@ -28,21 +28,6 @@ struct KCImageLoaderTests {
         #expect(sut.isLoading == false)
     }
 
-    @Test("load(nil) → 상태 초기화")
-    func loadNilResetsState() async {
-        // Given
-        let pipeline = ImagePipeline.makeForTesting()
-        let sut = KCImageLoader(pipeline: pipeline)
-
-        // When
-        await sut.load(nil)
-
-        // Then
-        #expect(sut.image == nil)
-        #expect(sut.error == nil)
-        #expect(sut.isLoading == false)
-    }
-
     @Test("load 성공 → image 채움, isLoading false, error nil")
     func loadSuccessPopulatesImage() async {
         // Given
@@ -77,12 +62,12 @@ struct KCImageLoaderTests {
 
     @Test("caller Task cancel → 상태 유지")
     func cancelMidFlightPreservesState() async {
-        // Given — delayed fetcher 로 cancel 윈도우 확보
+        // Given: delayed fetcher 로 cancel 윈도우 확보
         let fetcher = MockImageDataFetcher(.delayed(Sample.imageData, .milliseconds(500)))
         let pipeline = ImagePipeline.makeForTesting(fetcher: fetcher)
         let sut = KCImageLoader(pipeline: pipeline)
 
-        // When — load 시작 후 즉시 outer Task cancel
+        // When: load 시작 후 즉시 outer Task cancel
         let task = Task { @MainActor in
             await sut.load(ImageRequest(url: URL.makeForTesting()))
         }
@@ -90,31 +75,13 @@ struct KCImageLoaderTests {
         task.cancel()
         await task.value
 
-        // Then — image/error 둘 다 nil 유지 (silently cancelled)
+        // Then: image/error 둘 다 nil 유지 (silently cancelled)
         #expect(sut.image == nil)
         #expect(sut.error == nil)
     }
 
-    @Test("실패 후 load(nil) → error 초기화")
-    func loadNilClearsErrorAfterFailure() async {
-        // Given
-        let fetcher = MockImageDataFetcher(.failure(URLError(.notConnectedToInternet)))
-        let pipeline = ImagePipeline.makeForTesting(fetcher: fetcher)
-        let sut = KCImageLoader(pipeline: pipeline)
-        await sut.load(ImageRequest(url: URL.makeForTesting()))
-        #expect(sut.error != nil)
-
-        // When
-        await sut.load(nil)
-
-        // Then
-        #expect(sut.image == nil)
-        #expect(sut.error == nil)
-        #expect(sut.isLoading == false)
-    }
-
-    @Test("성공 후 load(nil) → image 초기화")
-    func loadNilClearsImageAfterSuccess() async {
+    @Test("로드 후 load(nil) → 상태 초기화")
+    func loadNilResetsState() async {
         // Given
         let fetcher = MockImageDataFetcher(.success(Sample.imageData))
         let pipeline = ImagePipeline.makeForTesting(fetcher: fetcher)

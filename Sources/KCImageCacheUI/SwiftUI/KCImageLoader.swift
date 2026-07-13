@@ -31,7 +31,7 @@ public final class KCImageLoader: ObservableObject {
     @Published public private(set) var isLoading: Bool = false
 
     /// 마지막 로드 에러.
-    @Published public private(set) var error: Error?
+    @Published public private(set) var error: (any Error)?
 
     /// 사용 중인 `ImagePipeline`.
     public let pipeline: ImagePipeline
@@ -64,7 +64,7 @@ public final class KCImageLoader: ObservableObject {
             uiImage = loaded
             isLoading = false
         } catch is CancellationError {
-            // 취소 시 상태 유지 — 다음 load 호출이 덮어쓴다.
+            // 취소 시 상태 유지. 다음 load 호출이 덮어쓴다.
         } catch {
             self.error = error
             self.isLoading = false

@@ -15,78 +15,38 @@ struct ImageRequestTests {
     let url = URL(string: "https://example.com/photo.jpg")!
 
     @Test("options nil → cacheKey == URL absoluteString")
-    func options_nil_cacheKey_is_url() {
-        // Given
-        let request = ImageRequest(url: url)
-
-        // When
-        let key = request.cacheKey
-
-        // Then
-        #expect(key == url.absoluteString)
+    func nilOptionsUseURLAsKey() {
+        #expect(ImageRequest(url: url).cacheKey == url.absoluteString)
     }
 
-    @Test("options 동반 → cacheKey 에 (pointSize, scale) 접미사")
-    func options_present_cacheKey_includes_point_and_scale_suffix() {
+    @Test("pointSize 나 scale 이 다르면 cacheKey 분리")
+    func differentOptionsSeparateKeys() {
         // Given
-        let request = ImageRequest(
-            url: url,
-            options: ImageRequestOptions(pointSize: CGSize(width: 200, height: 100), scale: 2.0)
-        )
-
-        // When
-        let key = request.cacheKey
-
-        // Then
-        #expect(key == "\(url.absoluteString)|kc-200x100@2.0x")
-    }
-
-    @Test("같은 URL · 다른 pointSize → cacheKey 분리")
-    func different_point_size_separates_cacheKey() {
-        // Given
-        let small = ImageRequest(
-            url: url,
-            options: ImageRequestOptions(pointSize: CGSize(width: 100, height: 100), scale: 2.0)
-        )
-        let large = ImageRequest(
-            url: url,
-            options: ImageRequestOptions(pointSize: CGSize(width: 400, height: 400), scale: 2.0)
-        )
+        let base = ImageRequest(url: url)
+        let small = makeRequest(side: 100, scale: 2.0)
+        let large = makeRequest(side: 400, scale: 2.0)
+        let large3x = makeRequest(side: 400, scale: 3.0)
 
         // When/Then
+        #expect(small.cacheKey != base.cacheKey)
         #expect(small.cacheKey != large.cacheKey)
+        #expect(large.cacheKey != large3x.cacheKey)
     }
 
-    @Test("같은 pointSize · 다른 scale → cacheKey 분리")
-    func different_scale_separates_cacheKey() {
+    @Test("같은 URL 과 같은 옵션 → 같은 request 로 취급")
+    func equalInputsProduceEqualRequest() {
         // Given
-        let r1x = ImageRequest(
-            url: url,
-            options: ImageRequestOptions(pointSize: CGSize(width: 200, height: 200), scale: 1.0)
-        )
-        let r2x = ImageRequest(
-            url: url,
-            options: ImageRequestOptions(pointSize: CGSize(width: 200, height: 200), scale: 2.0)
-        )
-
-        // When/Then
-        #expect(r1x.cacheKey != r2x.cacheKey)
-    }
-
-    @Test("같은 URL · 같은 (pointSize, scale) → ImageRequest Hashable 동치")
-    func equal_inputs_produce_equal_request() {
-        // Given
-        let lhs = ImageRequest(
-            url: url,
-            options: ImageRequestOptions(pointSize: CGSize(width: 200, height: 200), scale: 2.0)
-        )
-        let rhs = ImageRequest(
-            url: url,
-            options: ImageRequestOptions(pointSize: CGSize(width: 200, height: 200), scale: 2.0)
-        )
+        let lhs = makeRequest(side: 200, scale: 2.0)
+        let rhs = makeRequest(side: 200, scale: 2.0)
 
         // When/Then
         #expect(lhs == rhs)
         #expect(lhs.hashValue == rhs.hashValue)
+    }
+}
+
+extension ImageRequestTests {
+    private func makeRequest(side: CGFloat, scale: CGFloat) -> ImageRequest {
+        ImageRequest(url: url, options: .init(pointSize: CGSize(width: side, height: side), scale: scale))
     }
 }

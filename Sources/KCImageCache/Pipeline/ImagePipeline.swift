@@ -7,128 +7,132 @@
 
 import UIKit
 
-/// `ImagePipeline` 전용 global actor.
-@globalActor
-public actor KCImagePipelineActor {
-    public static let shared = KCImagePipelineActor()
-    private init() {}
-}
-
 /// 메모리 → 디스크 → 네트워크 순서로 이미지를 로드합니다.
 ///
 /// ```swift
 /// let image = try await ImagePipeline.shared.loadImage(ImageRequest(url: url))
 /// ```
 ///
-/// 같은 키 요청이 동시에 들어오면 한 번만 처리하고 결과를 공유합니다.
-@KCImagePipelineActor
-public final class ImagePipeline {
-
+/// 같은 키의 네트워크 다운로드는 동시에 요청돼도 한 번만 수행하고 결과를 공유합니다.
+public final class ImagePipeline: Sendable {
+    
     // MARK: - Shared
-
-    /// 공유 인스턴스. 앱 시작 시 교체 가능.
-    nonisolated public static var shared: ImagePipeline {
+    
+    /// 앱 시작 시 교체 가능한 공유 인스턴스
+    public static var shared: ImagePipeline {
         get { _shared.withLockRead { $0 } }
         set { _shared.withLock { $0 = newValue } }
     }
-
-    private nonisolated static let _shared = Locked<ImagePipeline>(
+    
+    private static let _shared = Locked<ImagePipeline>(
         ImagePipeline(configuration: .defaultDiskCache)
     )
-
+    
     // MARK: - Storage
-
+    
     private let memoryCache: MemoryCache?
     private let diskCache: DiskCache?
-    private let fetcher: any ImageDataFetcher
+    private let downloader: ImageDownloader
     private let decoder: any ImageDecoder
     private let encoder: any ImageEncoder
-
-    /// 같은 캐시 키로 동시 진행되는 네트워크 요청을 하나로 합칩니다.
-    private let sharedTask = AsyncSharedTask<UIImage>()
-
-    private nonisolated let lifecycleTask: Locked<Task<Void, Never>?> = Locked(nil)
-
+    
+    private let lifecycleTask: Locked<Task<Void, Never>?> = Locked(nil)
+    
     // MARK: - Init
-
-    nonisolated public init(configuration: Configuration) {
+    
+    public init(configuration: Configuration) {
         self.memoryCache = configuration.memoryCache
         self.diskCache = configuration.diskCache
-        self.fetcher = configuration.fetcher
+        self.downloader = ImageDownloader(
+            fetcher: configuration.fetcher,
+            decoder: configuration.decoder
+        )
         self.decoder = configuration.decoder
         self.encoder = configuration.encoder
-
-        let task = Task { @KCImagePipelineActor [weak self] in
-            for await _ in NotificationCenter.default.notifications(
-                named: UIApplication.didReceiveMemoryWarningNotification
-            ) {
-                self?.handleMemoryWarning()
+        
+        let task = Task { [memoryCache, diskCache] in
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    for await _ in NotificationCenter.default.notifications(
+                        named: UIApplication.didReceiveMemoryWarningNotification
+                    ) {
+                        memoryCache?.removeAll()
+                    }
+                }
+                group.addTask {
+                    for await _ in NotificationCenter.default.notifications(
+                        named: UIApplication.didEnterBackgroundNotification
+                    ) {
+                        diskCache?.scheduleSweep()
+                    }
+                }
             }
         }
         lifecycleTask.withLock { $0 = task }
     }
-
+    
     deinit {
         lifecycleTask.withLockRead { $0 }?.cancel()
     }
-
+    
     // MARK: - Load
-
-    /// `ImageRequest` 로 이미지를 로드합니다.
-    public nonisolated func loadImage(_ request: ImageRequest) async throws -> UIImage {
-        try await _loadImage(request)
+    
+    /// `ImageRequest` 로 이미지를 로드합니다. 메모리 → 디스크 → 네트워크 순으로 시도.
+    public func loadImage(_ request: ImageRequest) async throws -> UIImage {
+        if let image = memoryCache?.value(for: request.cacheKey) { return image }
+        if let image = await loadFromDisk(request: request) { return image }
+        try Task.checkCancellation()
+        return try await loadFromNetwork(request: request)
     }
+}
 
-    /// 메모리 → 디스크 → 공유 네트워크 작업 순으로 시도.
-    private func _loadImage(_ request: ImageRequest) async throws -> UIImage {
-        let key = request.cacheKey
-
-        if let image = memoryCache?.value(for: key) { return image }
-        if let image = loadFromDisk(request: request) { return image }
-
-        return try await sharedTask.join(key: key) { [self] in
-            try await loadFromNetwork(request: request)
-        }
-    }
-
-    // MARK: - Cascade Helpers
-
-    /// 다운샘플 디스크 우선, 없으면 원본 디스크.
-    private func loadFromDisk(request: ImageRequest) -> UIImage? {
+extension ImagePipeline {
+    /// 다운샘플 디스크 우선, 없으면 원본. 히트 시 메모리 적재.
+    private func loadFromDisk(request: ImageRequest) async -> UIImage? {
         guard let diskCache else { return nil }
-
-        if let key = request.encodedDiskKey,
-           let data = diskCache.data(for: key),
-           let image = try? decoder.decode(data, options: nil) {
-            memoryCache?.set(image, for: request.cacheKey)
-            return image
+        
+        var image = await loadEncodedImage(from: diskCache, request: request)
+        if image == nil {
+            image = await loadOriginalImage(from: diskCache, request: request)
         }
-
-        guard let raw = diskCache.data(for: request.originalDiskKey),
-              let image = try? decoder.decode(raw, options: request.options) else {
-            return nil
-        }
-        if let key = request.encodedDiskKey, let encoded = try? encoder.encode(image) {
-            diskCache.store(encoded, for: key)
-        }
+        
+        guard let image else { return nil }
         memoryCache?.set(image, for: request.cacheKey)
         return image
     }
+    
+    /// 저장된 다운샘플본을 디코드.
+    private func loadEncodedImage(from diskCache: DiskCache, request: ImageRequest) async -> UIImage? {
+        guard let key = request.encodedDiskKey,
+              let data = await diskCache.data(for: key) else { return nil }
+        return try? decoder.decode(data, options: nil)
+    }
+    
+    /// 원본을 디코드하고 다운샘플본을 저장.
+    private func loadOriginalImage(from diskCache: DiskCache, request: ImageRequest) async -> UIImage? {
+        guard let data = await diskCache.data(for: request.originalDiskKey),
+              let image = try? decoder.decode(data, options: request.options) else { return nil }
+        await storeEncodedImage(image, to: diskCache, for: request)
+        return image
+    }
+    
+    /// 다운샘플본을 인코드해 디스크에 저장.
+    private func storeEncodedImage(_ image: UIImage, to diskCache: DiskCache, for request: ImageRequest) async {
+        guard let key = request.encodedDiskKey, let encoded = try? encoder.encode(image) else { return }
+        await diskCache.store(encoded, for: key)
+    }
+}
 
-    /// 네트워크 다운로드 + 디코드 → 디스크·메모리 저장.
+extension ImagePipeline {
+    /// 다운로드 → 디스크·메모리 저장.
     private func loadFromNetwork(request: ImageRequest) async throws -> UIImage {
-        let data = try await fetcher.data(for: request.url)
-        let image = try decoder.decode(data, options: request.options)
-
-        diskCache?.store(data, for: request.originalDiskKey)
-        if let key = request.encodedDiskKey, let encoded = try? encoder.encode(image) {
-            diskCache?.store(encoded, for: key)
+        let result = try await downloader.download(request)
+        
+        if let diskCache {
+            await diskCache.store(result.data, for: request.originalDiskKey)
+            await storeEncodedImage(result.image, to: diskCache, for: request)
         }
-        memoryCache?.set(image, for: request.cacheKey)
-        return image
-    }
-
-    private func handleMemoryWarning() {
-        memoryCache?.removeAll()
+        memoryCache?.set(result.image, for: request.cacheKey)
+        return result.image
     }
 }
