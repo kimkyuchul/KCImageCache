@@ -147,7 +147,14 @@ public final class DiskCache: Sendable {
     }
     
     // MARK: - Sweep
-    
+
+    /// sweep 을 sweepQueue 에 예약합니다.
+    func scheduleSweep() {
+        sweepQueue.async { [weak self] in
+            self?.sweep()
+        }
+    }
+
     /// `sizeLimit` 초과 시 절반 크기가 될 때까지 가장 오래된 파일부터 제거.
     func sweep() {
         var files = cachedFiles()

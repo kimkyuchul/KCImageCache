@@ -61,9 +61,9 @@ public final class ImagePipeline: Sendable {
                 }
                 group.addTask {
                     for await _ in NotificationCenter.default.notifications(
-                        named: .NSBundleResourceRequestLowDiskSpace
+                        named: UIApplication.didEnterBackgroundNotification
                     ) {
-                        await diskCache?.removeAll()
+                        diskCache?.scheduleSweep()
                     }
                 }
             }
