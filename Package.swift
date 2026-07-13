@@ -21,7 +21,8 @@ let package = Package(
             name: "KCImageCache",
             path: "Sources/KCImageCache",
             swiftSettings: [
-                .swiftLanguageMode(.v6)
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny")
             ]
         ),
         .target(
@@ -29,7 +30,8 @@ let package = Package(
             dependencies: ["KCImageCache"],
             path: "Sources/KCImageCacheUI",
             swiftSettings: [
-                .swiftLanguageMode(.v6)
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny")
             ]
         ),
         .testTarget(
@@ -40,7 +42,8 @@ let package = Package(
                 .process("Resources")
             ],
             swiftSettings: [
-                .swiftLanguageMode(.v6)
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny")
             ]
         )
     ]
